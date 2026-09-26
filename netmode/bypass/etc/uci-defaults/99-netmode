@@ -1,0 +1,17 @@
+#!/bin/sh
+# FanchmWrt 旁路模式默认配置 (首次启动自动执行一次后由系统移除)
+# 部署形态: 旁挂防火墙 / 旁路网关
+#   - 静态管理 IP: 192.168.2.8 (与主路由同处 192.168.2.0/24 网段)
+#   - 关闭 LAN 侧 DHCP 服务, 避免与主路由争抢地址
+#   - 网关/DNS 指向上游主路由 192.168.2.1 (若主路由不是 .1 请改这一行)
+uci -q batch <<'EOF'
+set network.lan.proto='static'
+set network.lan.ipaddr='192.168.2.8'
+set network.lan.netmask='255.255.255.0'
+set network.lan.gateway='192.168.2.1'
+set network.lan.dns='192.168.2.1'
+set dhcp.lan.ignore='1'
+EOF
+uci commit network
+uci commit dhcp
+exit 0
