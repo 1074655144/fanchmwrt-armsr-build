@@ -18,11 +18,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { target: x86_64, mode: bypass, out: x86/64,       name: x86-64-bypass }
-          - { target: x86_64, mode: router, out: x86/64,       name: x86-64-router }
-          - { target: armv8,  mode: bypass, out: armsr/armv8,  name: armv8-bypass }
-          - { target: armv8,  mode: router, out: armsr/armv8,  name: armv8-router }
+        # x86_64 暂注释: 本次仅重编 armv8。fwx_user.ko 插件只在 x86_64/rockchip-armv8 等官方支持目标可用;
+        # 如需恢复 x86_64 构建, 取消下面两行注释即可。
+        # - { target: x86_64, mode: bypass, out: x86/64,       name: x86-64-bypass }
+        # - { target: x86_64, mode: router, out: x86/64,       name: x86-64-router }
+        - { target: armv8,  mode: bypass, out: armsr/armv8,  name: armv8-bypass }
+        - { target: armv8,  mode: router, out: armsr/armv8,  name: armv8-router }
 
     steps:
       - name: Checkout
