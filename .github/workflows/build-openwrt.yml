@@ -1,28 +1,29 @@
-name: Build FanchmWrt armsr/armv8 VM
+name: Build FanchmWrt (x86/ARM · bypass/router)
 
 on:
   repository_dispatch:
   workflow_dispatch:
-    inputs:
-      repo_url:
-        description: 'FanchmWrt 源码仓库'
-        default: 'https://github.com/fanchmwrt/fanchmwrt'
-      repo_branch:
-        description: '要编译的分支'
-        default: 'fanchmwrt-25.12.4'
 
 env:
   REPO_URL: https://github.com/fanchmwrt/fanchmwrt
   REPO_BRANCH: fanchmwrt-25.12.4
-  CONFIG_FILE: .config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
-  UPLOAD_FIRMWARE: true
+  UPLOAD_FIRMWARE: 'true'
   TZ: Asia/Shanghai
 
 jobs:
   build:
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64, mode: bypass, out: x86/64,       name: x86-64-bypass }
+          - { target: x86_64, mode: router, out: x86/64,       name: x86-64-router }
+          - { target: armv8,  mode: bypass, out: armsr/armv8,  name: armv8-bypass }
+          - { target: armv8,  mode: router, out: armsr/armv8,  name: armv8-router }
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -68,12 +69,17 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Load custom configuration
+      - name: Generate .config (${{ matrix.target }})
         run: |
-          [ -e "${{ env.CONFIG_FILE }}" ] && cp "${{ env.CONFIG_FILE }}" openwrt/.config
-          [ -d files ] && cp -r files openwrt/files
+          chmod +x gen-config.sh
+          ./gen-config.sh ${{ matrix.target }} "$PWD/features.cfg"
+
+      - name: Inject network-mode uci-defaults (${{ matrix.mode }})
+        run: |
           cd openwrt
-          make defconfig
+          mkdir -p files/etc/uci-defaults
+          cp -r ../netmode/${{ matrix.mode }}/. files/
+          chmod +x files/etc/uci-defaults/*
 
       - name: Run DIY part1
         run: |
@@ -102,13 +108,13 @@ jobs:
         run: |
           cd openwrt
           df -hT $PWD
-          echo "=== firmware ==="
-          ls -lh bin/targets/armsr/armv8/ || true
+          echo "=== firmware (${{ matrix.out }}) ==="
+          ls -lh bin/targets/${{ matrix.out }}/ || true
 
       - name: Upload firmware artifact
         if: ${{ env.UPLOAD_FIRMWARE == 'true' && !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: FanchmWrt-armsr-armv8-${{ env.REVISION }}
-          path: openwrt/bin/targets/armsr/armv8/*
+          name: FanchmWrt-${{ matrix.name }}-${{ env.REVISION }}
+          path: openwrt/bin/targets/${{ matrix.out }}/*
           retention-days: 14
