@@ -1,0 +1,114 @@
+name: Build FanchmWrt armsr/armv8 VM
+
+on:
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      repo_url:
+        description: 'FanchmWrt 源码仓库'
+        default: 'https://github.com/fanchmwrt/fanchmwrt'
+      repo_branch:
+        description: '要编译的分支'
+        default: 'fanchmwrt-25.12.4'
+
+env:
+  REPO_URL: https://github.com/fanchmwrt/fanchmwrt
+  REPO_BRANCH: fanchmwrt-25.12.4
+  CONFIG_FILE: .config
+  DIY_P1_SH: diy-part1.sh
+  DIY_P2_SH: diy-part2.sh
+  UPLOAD_FIRMWARE: true
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo apt-get clean
+          df -hT $PWD
+
+      - name: Initialization environment
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get -y install \
+            build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
+            gettext git libncurses5-dev libssl-dev python3 python3-setuptools \
+            rsync unzip zlib1g-dev file wget curl git-core libelf-dev \
+            device-tree-compiler gperf intltool libglib2.0-dev xsltproc subversion \
+            ccache ecj fastjar libltdl-dev libmpc-dev libmpfr-dev quilt \
+            autoconf automake libtool sharutils bzip2 qemu-utils
+          sudo apt-get -y autoremove --purge
+          sudo apt-get clean
+          sudo timedatectl set-timezone "$TZ"
+
+      - name: Clone source
+        run: |
+          git clone --depth 1 --branch "${{ env.REPO_BRANCH }}" "${{ env.REPO_URL }}" openwrt
+          cd openwrt
+          echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
+          echo "REVISION=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      - name: Inject custom feeds (iStore etc.)
+        run: |
+          cp feeds.conf openwrt/feeds.conf
+          echo "=== openwrt/feeds.conf ==="
+          cat openwrt/feeds.conf
+
+      - name: Update & install feeds
+        run: |
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Load custom configuration
+        run: |
+          [ -e "${{ env.CONFIG_FILE }}" ] && cp "${{ env.CONFIG_FILE }}" openwrt/.config
+          [ -d files ] && cp -r files openwrt/files
+          cd openwrt
+          make defconfig
+
+      - name: Run DIY part1
+        run: |
+          chmod +x "${{ env.DIY_P1_SH }}"
+          cd openwrt
+          "../${{ env.DIY_P1_SH }}"
+
+      - name: Run DIY part2
+        run: |
+          chmod +x "${{ env.DIY_P2_SH }}"
+          cd openwrt
+          "../${{ env.DIY_P2_SH }}"
+
+      - name: Download packages
+        run: |
+          cd openwrt
+          make download -j$(nproc)
+
+      - name: Compile firmware
+        run: |
+          cd openwrt
+          echo -e "$(nproc) thread compile"
+          make -j$(nproc) || make -j$(nproc) V=s || make -j1 V=s
+
+      - name: Check space & list output
+        run: |
+          cd openwrt
+          df -hT $PWD
+          echo "=== firmware ==="
+          ls -lh bin/targets/armsr/armv8/ || true
+
+      - name: Upload firmware artifact
+        if: ${{ env.UPLOAD_FIRMWARE == 'true' && !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: FanchmWrt-armsr-armv8-${{ env.REVISION }}
+          path: openwrt/bin/targets/armsr/armv8/*
+          retention-days: 14
